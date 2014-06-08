@@ -19,18 +19,15 @@ void exit_usage(int exit_code) {
 
 int main(int argc, char ** argv) {
   char opt;
-  char * puerto = NULL;
+  char * puerto   = NULL;
   char * bitacora = NULL;
+
   program_name = argv[0];
 
   while ((opt = getopt(argc, argv, "l:b:")) != -1) {
     switch (opt) {
-      case 'l':
-        puerto = optarg;
-        break;
-      case 'b':
-        bitacora = optarg;
-        break;
+      case 'l': puerto   = optarg; break;
+      case 'b': bitacora = optarg; break;
       default:
         exit_usage(EX_USAGE);
     }
@@ -44,4 +41,6 @@ int main(int argc, char ** argv) {
     fprintf(stderr, "El nombre del archivo bitácora es obligatorio.\n");
     exit_usage(EX_USAGE);
   }
+
+  exit(EX_OK);
 }
