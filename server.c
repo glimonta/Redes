@@ -18,6 +18,7 @@ char * program_name;
 
 Deque clientes;
 pthread_mutex_t mutex_clientes = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_stdout = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond_stack_readable = PTHREAD_COND_INITIALIZER;
 
 void exit_usage(int exit_code) {
@@ -60,7 +61,7 @@ void encolar(int num) {
 void * productor(void * arg) {
   (void)arg;
 
-  for(int i = 0; i < 10; ++i) {
+  for(int i = 0; i < 50; ++i) {
     encolar(i);
   }
 
@@ -87,7 +88,7 @@ void * consumidor(void * arg) {
       if (s != 0) {
         // Si el código del programa está bien, esto nunca debería suceder.  Sin embargo, esta verificación puede ayudar a detectar errores de programación.
         errno = s;
-        perror("Error intentando entrar en la sección crítica del consumidor; pthread_mutex_lock: ");
+        perror("ErROR intentando entrar en la sección crítica del consumidor; pthread_mutex_lock: ");
         exit(EX_SOFTWARE);
       }
       // Al ocurrir un signal sobre esta condición, esta función adquiere de nuevo el mutex y retorna.  Si otro consumidor no se nos adelantó, la condición del ciclo no se cumplirá (porque seremos los primeros en ver el nuevo dato disponible en la pila) y saldremos del ciclo.
@@ -95,8 +96,13 @@ void * consumidor(void * arg) {
 
     { // Sección crítica:
       int * cliente = (int *)pop_front_deque(clientes);
-      printf("Consumidor: desempilé %d.\n", *cliente);
-//      free(cliente);
+      pthread_mutex_lock(&mutex_stdout);
+      { // Sección crítica
+        printf("Consumidor: desempilé %d.\n", *cliente);
+        fflush(stdout);
+      }
+      pthread_mutex_unlock(&mutex_stdout);
+      free(cliente);
     }
 
     s = pthread_mutex_unlock(&mutex_clientes);
@@ -220,16 +226,10 @@ int main(int argc, char ** argv) {
     exit(EX_OSERR);
   }
 
-  {
-    struct timeval t = {
-      .tv_sec  = 10,
-      .tv_usec =  0,
-    };
-    select(0, NULL, NULL, NULL, &t);
-  }
-
+  int num_consumidores = 10;
   clientes = empty_deque();
-  pthread_t tid_productor, tid_consumidor;
+  pthread_t tid_productor;
+  pthread_t consumidores[num_consumidores];
   int s;
 
   // Crear los hilos productor y consumidor:
@@ -240,11 +240,13 @@ int main(int argc, char ** argv) {
     exit(EX_OSERR);
   }
 
-  s = pthread_create(&tid_consumidor, NULL, &consumidor, NULL);
-  if (s != 0) {
-    errno = s;
-    perror("No fue posible crear hilo consumidor; pthread_create: ");
-    exit(EX_OSERR);
+  for (int i = 0; i < num_consumidores; ++i) {
+    s = pthread_create(&consumidores[i], NULL, &consumidor, NULL);
+    if (s != 0) {
+      errno = s;
+      perror("No fue posible crear hilo consumidor; pthread_create: ");
+      exit(EX_OSERR);
+    }
   }
 
   // Esperar por la terminación de los hilos:
@@ -255,11 +257,13 @@ int main(int argc, char ** argv) {
     exit(EX_OSERR);
   }
 
-  s = pthread_join(tid_consumidor, NULL);
-  if (s != 0) {
-    errno = s;
-    perror("No fue posible esperar por la terminación del hilo consumidor; pthread_join: ");
-    exit(EX_OSERR);
+  for (int i = 0; i < num_consumidores; ++i) {
+    s = pthread_join(consumidores[i], NULL);
+    if (s != 0) {
+      errno = s;
+      perror("No fue posible esperar por la terminación del hilo consumidor; pthread_join: ");
+      exit(EX_OSERR);
+    }
   }
 
   exit(EX_OK);
