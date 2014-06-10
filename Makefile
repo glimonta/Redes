@@ -3,9 +3,9 @@ COPTS = -Wall -Wextra -std=gnu11 -pthread -ggdb
 
 all: svr_s svr_c
 
-svr_s: cola.o server.o; gcc $(COPTS) -o $@ $^
+svr_s: cola.o server.o evento.o; gcc $(COPTS) -o $@ $^
 
-svr_c: client.o; gcc $(COPTS) -o $@ $<
+svr_c: client.o evento.o; gcc $(COPTS) -o $@ $<
 
 %.o: %.c; gcc $(COPTS) -c $<
 

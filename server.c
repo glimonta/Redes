@@ -38,7 +38,7 @@ void encolar(int num) {
   if (s != 0) {
     // Si el código del programa está bien, esto nunca debería suceder.  Sin embargo, esta verificación puede ayudar a detectar errores de programación.
     errno = s;
-    perror("Error intentando entrar en la sección crítica del productor; pthread_mutex_lock: ");
+    perror("Error intentando entrar en la sección crítica del productor; pthread_mutex_lock");
     exit(EX_SOFTWARE);
   }
 
@@ -53,69 +53,111 @@ void encolar(int num) {
   if (s != 0) {
     // Si el código del programa está bien, esto nunca debería suceder.  Sin embargo, esta verificación puede ayudar a detectar errores de programación.
     errno = s;
-    perror("Error intentando salir de la sección crítica del productor; pthread_mutex_unlock: ");
+    perror("Error intentando salir de la sección crítica del productor; pthread_mutex_unlock");
     exit(EX_SOFTWARE);
   }
 }
 
-void * productor(void * arg) {
-  (void)arg;
+void aceptar_conexion(int socks, int sockfds[]) {
+  fd_set readfds;
+  int nfds = -1;
 
-  for(int i = 0; i < 50; ++i) {
-    encolar(i);
+  FD_ZERO(&readfds);
+  for (int i = 0; i < socks; ++i) {
+    FD_SET(sockfds[i], &readfds);
+    nfds = (sockfds[i] > nfds) ? sockfds[i] : nfds;
   }
 
+  int disponibles;
+  switch (disponibles = select(nfds + 1, &readfds, NULL, NULL, NULL)) {
+    case 0:
+      fprintf(stderr, "Select retorno 0, revisar el codigo");
+      exit(EX_SOFTWARE);
 
-  pthread_exit(NULL);
+    case -1:
+      perror("Error esperando por conexiones de clientes");
+      exit(EX_IOERR);
+
+    default:
+      break;
+  }
+
+  int j = 0;
+  for (int i = 0;j < disponibles && i < socks; ++i) {
+    if (FD_ISSET(sockfds[i], &readfds)) {
+      ++j;
+
+      int cliente = accept(sockfds[i], NULL, NULL);
+      if (-1 == cliente) {
+        if (EAGAIN == errno || EWOULDBLOCK == errno) {
+          continue;
+        } else {
+          perror("Error aceptando la conexión del cliente");
+          exit(EX_IOERR);
+        }
+      }
+      encolar(cliente);
+    }
+  }
+}
+
+void * desencolar (void * datos) {
+  (void)datos;
+
+  return pop_front_deque(clientes);
+}
+
+void * with_clientes(void * (*f)(void *), void * datos) {
+  int s = pthread_mutex_lock(&mutex_clientes);
+  if (s != 0) {
+    // Si el código del programa está bien, esto nunca debería suceder.  Sin embargo, esta verificación puede ayudar a detectar errores de programación.
+    errno = s;
+    perror("Error intentando entrar en la sección crítica del consumidor; pthread_mutex_lock");
+    exit(EX_SOFTWARE);
+  }
+
+  // Mientras NO haya datos en la pila…
+  while (!(length_deque(clientes) > 0)) {
+    // …luego, si no nos salimos, esperamos a que alguien inserte datos.  Cuando se entra a esta función, atómicamente se libera el mutex y se comienza a esperar por un signal sobre la condición.
+    s = pthread_cond_wait(&cond_stack_readable, &mutex_clientes);
+    if (s != 0) {
+      // Si el código del programa está bien, esto nunca debería suceder.  Sin embargo, esta verificación puede ayudar a detectar errores de programación.
+      errno = s;
+      perror("Error intentando entrar en la sección crítica del consumidor; pthread_mutex_lock");
+      exit(EX_SOFTWARE);
+    }
+    // Al ocurrir un signal sobre esta condición, esta función adquiere de nuevo el mutex y retorna.  Si otro consumidor no se nos adelantó, la condición del ciclo no se cumplirá (porque seremos los primeros en ver el nuevo dato disponible en la pila) y saldremos del ciclo.
+  }
+
+  void * ret = f(datos);
+
+  s = pthread_mutex_unlock(&mutex_clientes);
+  if (s != 0) {
+    // Si el código del programa está bien, esto nunca debería suceder.  Sin embargo, esta verificación puede ayudar a detectar errores de programación.
+    errno = s;
+    perror("Error intentando salir de la sección crítica del consumidor; pthread_mutex_unlock");
+    exit(EX_SOFTWARE);
+  }
+
+  return ret;
 }
 
 void * consumidor(void * arg) {
-  (void)arg;
+  int * num_consumidor = (int *)arg;
 
-  while (1) {
-    int s = pthread_mutex_lock(&mutex_clientes);
-    if (s != 0) {
-      // Si el código del programa está bien, esto nunca debería suceder.  Sin embargo, esta verificación puede ayudar a detectar errores de programación.
-      errno = s;
-      perror("Error intentando entrar en la sección crítica del consumidor; pthread_mutex_lock: ");
-      exit(EX_SOFTWARE);
-    }
+  while(1) {
+    int * cliente = (int *)with_clientes(desencolar, NULL);
 
-    // Mientras NO haya datos en la pila…
-    while (!(length_deque(clientes) > 0)) {
-      // …luego, si no nos salimos, esperamos a que alguien inserte datos.  Cuando se entra a esta función, atómicamente se libera el mutex y se comienza a esperar por un signal sobre la condición.
-      s = pthread_cond_wait(&cond_stack_readable, &mutex_clientes);
-      if (s != 0) {
-        // Si el código del programa está bien, esto nunca debería suceder.  Sin embargo, esta verificación puede ayudar a detectar errores de programación.
-        errno = s;
-        perror("ErROR intentando entrar en la sección crítica del consumidor; pthread_mutex_lock: ");
-        exit(EX_SOFTWARE);
-      }
-      // Al ocurrir un signal sobre esta condición, esta función adquiere de nuevo el mutex y retorna.  Si otro consumidor no se nos adelantó, la condición del ciclo no se cumplirá (porque seremos los primeros en ver el nuevo dato disponible en la pila) y saldremos del ciclo.
+    pthread_mutex_lock(&mutex_stdout);
+    { // Sección crítica
+      printf("Consumidor %d: desempilé %d.\n", *num_consumidor, *cliente);
+      close(*cliente);
+      fflush(stdout);
     }
+    pthread_mutex_unlock(&mutex_stdout);
 
-    { // Sección crítica:
-      int * cliente = (int *)pop_front_deque(clientes);
-      pthread_mutex_lock(&mutex_stdout);
-      { // Sección crítica
-        printf("Consumidor: desempilé %d.\n", *cliente);
-        fflush(stdout);
-      }
-      pthread_mutex_unlock(&mutex_stdout);
-      free(cliente);
-    }
-
-    s = pthread_mutex_unlock(&mutex_clientes);
-    if (s != 0) {
-      // Si el código del programa está bien, esto nunca debería suceder.  Sin embargo, esta verificación puede ayudar a detectar errores de programación.
-      errno = s;
-      perror("Error intentando salir de la sección crítica del consumidor; pthread_mutex_unlock: ");
-      exit(EX_SOFTWARE);
-    }
+    free(cliente);
   }
-
-  pthread_exit(NULL);
-
 }
 
 int main(int argc, char ** argv) {
@@ -228,20 +270,13 @@ int main(int argc, char ** argv) {
 
   int num_consumidores = 10;
   clientes = empty_deque();
-  pthread_t tid_productor;
   pthread_t consumidores[num_consumidores];
   int s;
 
-  // Crear los hilos productor y consumidor:
-  s = pthread_create(&tid_productor, NULL, &productor, NULL);
-  if (s != 0) {
-    errno = s;
-    perror("No fue posible crear hilo productor; pthread_create: ");
-    exit(EX_OSERR);
-  }
-
   for (int i = 0; i < num_consumidores; ++i) {
-    s = pthread_create(&consumidores[i], NULL, &consumidor, NULL);
+    int * num_consumidor = malloc(sizeof(int));
+    *num_consumidor = i;
+    s = pthread_create(&consumidores[i], NULL, &consumidor, num_consumidor);
     if (s != 0) {
       errno = s;
       perror("No fue posible crear hilo consumidor; pthread_create: ");
@@ -249,22 +284,7 @@ int main(int argc, char ** argv) {
     }
   }
 
-  // Esperar por la terminación de los hilos:
-  s = pthread_join(tid_productor, NULL);
-  if (s != 0) {
-    errno = s;
-    perror("No fue posible esperar por la terminación del hilo productor; pthread_join: ");
-    exit(EX_OSERR);
+  while (1) {
+    aceptar_conexion(socks, sockfds);
   }
-
-  for (int i = 0; i < num_consumidores; ++i) {
-    s = pthread_join(consumidores[i], NULL);
-    if (s != 0) {
-      errno = s;
-      perror("No fue posible esperar por la terminación del hilo consumidor; pthread_join: ");
-      exit(EX_OSERR);
-    }
-  }
-
-  exit(EX_OK);
 }
