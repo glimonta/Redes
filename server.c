@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #include "cola.h"
+#include "evento.h"
 
 const int no_sock = -1;
 const int default_backlog = 5;
@@ -146,17 +147,21 @@ void * consumidor(void * arg) {
   int * num_consumidor = (int *)arg;
 
   while(1) {
-    int * cliente = (int *)with_clientes(desencolar, NULL);
+    int * cliente_p = (int *)with_clientes(desencolar, NULL);
+    int cliente = *cliente_p;
+
+    struct evento evento = recibir(cliente);
 
     pthread_mutex_lock(&mutex_stdout);
     { // Sección crítica
-      printf("Consumidor %d: desempilé %d.\n", *num_consumidor, *cliente);
-      close(*cliente);
+      printf("Consumidor %d: recibí: %s.\n", *num_consumidor, to_s_te(evento.tipo));
       fflush(stdout);
     }
     pthread_mutex_unlock(&mutex_stdout);
 
-    free(cliente);
+    close(cliente);
+
+    free(cliente_p);
   }
 }
 

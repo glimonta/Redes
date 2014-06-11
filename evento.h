@@ -1,4 +1,4 @@
-enum tipo_mensaje
+enum tipo_evento
   { TM_COMMUNICATION_OFFLINE             = 1
   , TM_COMMUNICATION_ERROR               = 2
   , TM_LOW_CASH_ALERT                    = 3
@@ -19,13 +19,15 @@ struct evento {
   uint32_t origen ;
   uint32_t destino;
   uint64_t fecha  ;
-  uint8_t  codigo ;
+  uint8_t  tipo   ;
 };
 
-const char * to_s_tm(enum tipo_mensaje tipo_mensaje);
+const char * to_s_te(enum tipo_evento tipo_evento);
 
 void leer(int socket, void * buf, size_t count);
 void escribir(int fd, void * buf, size_t count);
 
 struct evento recibir(int socket);
 void enviar(int socked, struct evento evento);
+
+struct evento evento(uint32_t origen, uint32_t destino, enum tipo_evento tipo);

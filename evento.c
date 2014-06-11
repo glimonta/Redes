@@ -4,12 +4,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sysexits.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "evento.h"
 
-const char * to_s_tm(enum tipo_mensaje tipo_mensaje) {
-  switch (tipo_mensaje) {
+const char * to_s_te(enum tipo_evento tipo_evento) {
+  switch (tipo_evento) {
     case TM_COMMUNICATION_OFFLINE            : return "Communication offline"            ;
     case TM_COMMUNICATION_ERROR              : return "Communication error"              ;
     case TM_LOW_CASH_ALERT                   : return "Low cash alert"                   ;
@@ -45,7 +46,7 @@ void enviar(int socket, struct evento evento) {
   escribir(socket, &evento.origen , sizeof(evento.origen ));
   escribir(socket, &evento.destino, sizeof(evento.destino));
   escribir(socket, &evento.fecha  , sizeof(evento.fecha  ));
-  escribir(socket, &evento.codigo , sizeof(evento.codigo ));
+  escribir(socket, &evento.tipo   , sizeof(evento.tipo   ));
 }
 
 void leer(int socket, void * buf, size_t count) {
@@ -68,6 +69,24 @@ struct evento recibir(int socket) {
   leer(socket, &evento.origen , sizeof(evento.origen ));
   leer(socket, &evento.destino, sizeof(evento.destino));
   leer(socket, &evento.fecha  , sizeof(evento.fecha  ));
-  leer(socket, &evento.codigo , sizeof(evento.codigo ));
+  leer(socket, &evento.tipo   , sizeof(evento.tipo   ));
   return evento;
+}
+
+struct evento evento
+  ( uint32_t origen
+  , uint32_t destino
+  , enum tipo_evento tipo
+  )
+{
+  struct timespec t;
+  clock_gettime(CLOCK_REALTIME, &t);
+  struct evento e =
+    { .origen  = origen
+    , .destino = destino
+    , .fecha   = t.tv_sec
+    , .tipo    = tipo
+    }
+  ;
+  return e;
 }
