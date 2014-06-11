@@ -62,17 +62,31 @@ void * with_server(char * servidor, char * puerto, char * puerto_local, void * (
   int socket_servidor;
   for (struct addrinfo * result = results; result != NULL; result = result->ai_next) {
     if ((socket_servidor = socket(result->ai_family, result->ai_socktype, result->ai_protocol)) == -1) {
+      perror("socket");
       socket_servidor = no_sock;
       continue;
     }
 
+    {
+      int on = 1;
+
+      if (-1 == setsockopt(socket_servidor, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on))) {
+        perror("setsockopt");
+        close(socket_servidor);
+        socket_servidor = no_sock;
+        continue;
+      }
+    }
+
     if (bind(socket_servidor, (struct sockaddr *)&direccion_local, sizeof(direccion_local)) == -1) {
+      perror("bind");
       close(socket_servidor);
       socket_servidor = no_sock;
       continue;
     }
 
     if (connect(socket_servidor, result->ai_addr, result->ai_addrlen) == -1) {
+      perror("connect");
       close(socket_servidor);
       socket_servidor = no_sock;
       continue;
@@ -82,7 +96,7 @@ void * with_server(char * servidor, char * puerto, char * puerto_local, void * (
   }
 
   if (no_sock == socket_servidor) {
-    fprintf(stderr, "No se pudo establecer la conexión con el servidor");
+    fprintf(stderr, "No se pudo establecer la conexión con el servidor.\n");
     exit(EX_NOHOST);
   }
 
