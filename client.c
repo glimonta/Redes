@@ -25,33 +25,7 @@ void exit_usage(int exit_code) {
   exit(exit_code);
 }
 
-int main(int argc, char ** argv) {
-  char opt;
-  char * servidor     = NULL;
-  char * puerto       = NULL;
-  char * puerto_local = NULL;
-
-  program_name = argv[0];
-
-  while ((opt = getopt(argc, argv, "d:p:l:")) != -1) {
-    switch (opt) {
-      case 'd': servidor     = optarg; break;
-      case 'p': puerto       = optarg; break;
-      case 'l': puerto_local = optarg; break;
-      default:
-        exit_usage(EX_USAGE);
-    }
-  }
-
-  if (NULL == servidor) {
-    fprintf(stderr, "El nombre o dirección IP del servidor es obligatorio.\n");
-    exit_usage(EX_USAGE);
-  }
-  if (NULL == puerto) {
-    fprintf(stderr, "El número del puerto remoto es obligatorio.\n");
-    exit_usage(EX_USAGE);
-  }
-
+void * with_server(char * servidor, char * puerto, char * puerto_local, void * (*f)(int, void *), void * datos) {
   struct addrinfo hints;
   struct addrinfo * results;
   struct sockaddr_in direccion_local;
@@ -112,7 +86,60 @@ int main(int argc, char ** argv) {
     exit(EX_NOHOST);
   }
 
-  enviar(socket_servidor, evento(12345, 67890, 8));
+  void * ret = f(socket_servidor, datos);
+  close(socket_servidor);
+  return ret;
+}
+
+void * enviar_evento(int socket_servidor, void * datos) {
+  enum tipo_evento codigo = *(enum tipo_evento *)datos;
+
+  enviar(socket_servidor, evento(12345, 67890, codigo));
+  return NULL;
+}
+
+int main(int argc, char ** argv) {
+  char opt;
+  char * servidor     = NULL;
+  char * puerto       = NULL;
+  char * puerto_local = NULL;
+
+  program_name = argv[0];
+
+  while ((opt = getopt(argc, argv, "d:p:l:")) != -1) {
+    switch (opt) {
+      case 'd': servidor     = optarg; break;
+      case 'p': puerto       = optarg; break;
+      case 'l': puerto_local = optarg; break;
+      default:
+        exit_usage(EX_USAGE);
+    }
+  }
+
+  if (NULL == servidor) {
+    fprintf(stderr, "El nombre o dirección IP del servidor es obligatorio.\n");
+    exit_usage(EX_USAGE);
+  }
+  if (NULL == puerto) {
+    fprintf(stderr, "El número del puerto remoto es obligatorio.\n");
+    exit_usage(EX_USAGE);
+  }
+
+
+  int c = 1;
+  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
+  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
+  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
+  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
+  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
+  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
+  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
+  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
+  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
+  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
+  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
+  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
+  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
 
   exit(EX_OK);
 }
