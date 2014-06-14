@@ -1,5 +1,5 @@
-COPTS = -Wall -Wextra -std=gnu11 -pthread -ggdb
-LDOPTS = -lrt
+COPTS = -Wall -Wextra -std=gnu11 -pthread -ggdb -D_GNU_SOURCE
+LDOPTS = -lrt -DCURL_STATICLIB -lz
 .PHONY: all clean
 
 all: svr_s svr_c

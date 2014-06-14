@@ -1,3 +1,7 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
@@ -12,6 +16,9 @@
 
 #include "cola.h"
 #include "evento.h"
+#include "curl/include/curl/curl.h"
+
+#define min(x,y) ((x) < (y) ? (x) : (y))
 
 const int no_sock = -1;
 const int default_backlog = 5;
@@ -32,6 +39,77 @@ void exit_usage(int exit_code) {
     program_name
   );
   exit(exit_code);
+}
+
+#define FROM "<sender@example.org>"
+#define TO   "<glimonta@gmail.com>"
+
+static const char payload_text[] =
+  "To: " TO "\r\n"
+  "From: " FROM "(Example User)\r\n"
+  "Subject: Alerta SVR! :(\r\n"
+  "\r\n" /* empty line to divide headers from body, see RFC5322 */
+  "Hubo una alerta en el ATM %d.\r\n"
+  "Código de error: %d.\r\n"
+  "Mensaje de error: %s.\r\n"
+;
+
+struct upload_status {
+  size_t bytes_read;
+  char * texto;
+  int tam;
+};
+
+static size_t payload_source(void * ptr, size_t size, size_t nmemb, void * datos) {
+  struct upload_status * upload_ctx = (struct upload_status *)datos;
+  const char * data;
+
+  if (size == 0 || nmemb == 0 || upload_ctx->bytes_read >= (size_t)upload_ctx->tam) {
+    return 0;
+  }
+
+  data = &payload_text[upload_ctx->bytes_read];
+
+  size_t len = min(size, (size_t)upload_ctx->tam - upload_ctx->bytes_read);
+  memcpy(ptr, data, len);
+  upload_ctx->bytes_read += len;
+
+  return len;
+}
+
+void send_mail(struct evento evento) {
+  CURL *curl;
+  CURLcode res = CURLE_OK;
+  struct curl_slist *recipients = NULL;
+  struct upload_status upload_ctx;
+
+  upload_ctx.bytes_read = 0;
+  upload_ctx.tam = asprintf(&upload_ctx.texto, payload_text, evento.origen, evento.tipo, to_s_te(evento.tipo));
+  if (-1 == upload_ctx.tam) {
+    perror("asprintf");
+    exit(EX_OSERR);
+  }
+
+  curl = curl_easy_init();
+  if (curl) {
+    curl_easy_setopt(curl, CURLOPT_URL, "smtp://localhost:2500");
+    curl_easy_setopt(curl, CURLOPT_MAIL_FROM, FROM);
+    recipients = curl_slist_append(recipients, TO);
+    curl_easy_setopt(curl, CURLOPT_MAIL_RCPT, recipients);
+    curl_easy_setopt(curl, CURLOPT_READFUNCTION, payload_source);
+    curl_easy_setopt(curl, CURLOPT_READDATA, &upload_ctx);
+    curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
+
+    res = curl_easy_perform(curl);
+
+    if(res != CURLE_OK) {
+      fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+    }
+
+    curl_slist_free_all(recipients);
+    /* En cleanup es que se hace el quit. */
+    curl_easy_cleanup(curl);
+  }
 }
 
 void encolar(int num) {
@@ -158,6 +236,8 @@ void * consumidor(void * arg) {
       fflush(stdout);
     }
     pthread_mutex_unlock(&mutex_stdout);
+
+    send_mail(evento);
 
     close(cliente);
 
