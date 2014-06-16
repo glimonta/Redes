@@ -41,7 +41,7 @@ void exit_usage(int exit_code) {
   exit(exit_code);
 }
 
-#define FROM "<sender@example.org>"
+#define FROM "<10-10385@ldc.usb.ve>"
 #define TO   "<glimonta@gmail.com>"
 
 static const char payload_text[] =
