@@ -46,7 +46,7 @@ void exit_usage(int exit_code) {
 
 static const char payload_text[] =
   "To: " TO "\r\n"
-  "From: " FROM "(Example User)\r\n"
+  "From: " FROM "(SVR)\r\n"
   "Subject: Alerta SVR! :(\r\n"
   "\r\n" /* empty line to divide headers from body, see RFC5322 */
   "Hubo una alerta en el ATM %d.\r\n"
@@ -68,7 +68,7 @@ static size_t payload_source(void * ptr, size_t size, size_t nmemb, void * datos
     return 0;
   }
 
-  data = &payload_text[upload_ctx->bytes_read];
+  data = upload_ctx->texto + upload_ctx->bytes_read;
 
   size_t len = min(size, (size_t)upload_ctx->tam - upload_ctx->bytes_read);
   memcpy(ptr, data, len);
