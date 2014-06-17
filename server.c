@@ -23,6 +23,7 @@
 const int no_sock = -1;
 const int default_backlog = 5;
 char * program_name;
+char * to = "<glimonta@gmail.com>";
 
 Deque clientes;
 pthread_mutex_t mutex_clientes = PTHREAD_MUTEX_INITIALIZER;
@@ -32,21 +33,21 @@ pthread_cond_t cond_stack_readable = PTHREAD_COND_INITIALIZER;
 void exit_usage(int exit_code) {
   fprintf(
     stderr,
-    "Uso: %s -l <puerto_svr_s> -b <archivo_bitácora>\n"
+    "Uso: %s -l <puerto_svr_s> -b <archivo_bitácora> [-c <archivo_configuración>]\n"
     "Opciones:\n"
     "-l <puerto_svr_s>: Número de puerto local en el que el módulo central atenderá la llamada.\n"
-    "-b <archivo_bitácora>: Nombre y dirección relativa o absoluta de un archivo de texto que realiza operaciones de bitácora.\n",
+    "-b <archivo_bitácora>: Nombre y dirección relativa o absoluta de un archivo de texto que realiza operaciones de bitácora.\n"
+    "-c <archivo_configuración>: Nombre y dirección relativa o absoluta de un archivo de texto que contiene la configuración del SVR.\n",
     program_name
   );
   exit(exit_code);
 }
 
 #define FROM "<10-10385@ldc.usb.ve>"
-#define TO   "<glimonta@gmail.com>"
 
 static const char payload_text[] =
-  "To: " TO "\r\n"
-  "From: " FROM "(SVR)\r\n"
+  "To: %s \r\n"
+  "From: " FROM " (SVR)\r\n"
   "Subject: Alerta SVR! :(\r\n"
   "\r\n" /* empty line to divide headers from body, see RFC5322 */
   "Hubo una alerta en el ATM %d.\r\n"
@@ -84,7 +85,7 @@ void send_mail(struct evento evento) {
   struct upload_status upload_ctx;
 
   upload_ctx.bytes_read = 0;
-  upload_ctx.tam = asprintf(&upload_ctx.texto, payload_text, evento.origen, evento.tipo, to_s_te(evento.tipo));
+  upload_ctx.tam = asprintf(&upload_ctx.texto, payload_text, to, evento.origen, evento.tipo, to_s_te(evento.tipo));
   if (-1 == upload_ctx.tam) {
     perror("asprintf");
     exit(EX_OSERR);
@@ -94,7 +95,7 @@ void send_mail(struct evento evento) {
   if (curl) {
     curl_easy_setopt(curl, CURLOPT_URL, "smtp://smtp.ldc.usb.ve:2500");
     curl_easy_setopt(curl, CURLOPT_MAIL_FROM, FROM);
-    recipients = curl_slist_append(recipients, TO);
+    recipients = curl_slist_append(recipients, to);
     curl_easy_setopt(curl, CURLOPT_MAIL_RCPT, recipients);
     curl_easy_setopt(curl, CURLOPT_READFUNCTION, payload_source);
     curl_easy_setopt(curl, CURLOPT_READDATA, &upload_ctx);
@@ -249,13 +250,15 @@ int main(int argc, char ** argv) {
   char opt;
   char * puerto   = NULL;
   char * bitacora = NULL;
+  char * config   = NULL;
 
   program_name = argv[0];
 
-  while ((opt = getopt(argc, argv, "l:b:")) != -1) {
+  while ((opt = getopt(argc, argv, "l:b:c:")) != -1) {
     switch (opt) {
       case 'l': puerto   = optarg; break;
       case 'b': bitacora = optarg; break;
+      case 'c': config   = optarg; break;
       default:
         exit_usage(EX_USAGE);
     }
@@ -268,6 +271,10 @@ int main(int argc, char ** argv) {
   if (NULL == bitacora) {
     fprintf(stderr, "El nombre del archivo bitácora es obligatorio.\n");
     exit_usage(EX_USAGE);
+  }
+
+  if (NULL != config) {
+    /* Leer el archivo de configuración */
   }
 
   struct addrinfo hints;
