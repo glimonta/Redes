@@ -92,7 +92,7 @@ void send_mail(struct evento evento) {
 
   curl = curl_easy_init();
   if (curl) {
-    curl_easy_setopt(curl, CURLOPT_URL, "smtp://localhost:2500");
+    curl_easy_setopt(curl, CURLOPT_URL, "smtp://smtp.ldc.usb.ve:2500");
     curl_easy_setopt(curl, CURLOPT_MAIL_FROM, FROM);
     recipients = curl_slist_append(recipients, TO);
     curl_easy_setopt(curl, CURLOPT_MAIL_RCPT, recipients);
