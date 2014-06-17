@@ -25,6 +25,13 @@ const int default_backlog = 5;
 char * program_name;
 char * to = "<glimonta@gmail.com>";
 
+char * puerto   = NULL;
+char * bitacora = NULL;
+char * config   = NULL;
+
+int serial = 0;
+FILE * bitacora_file;
+
 Deque clientes;
 pthread_mutex_t mutex_clientes = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_stdout = PTHREAD_MUTEX_INITIALIZER;
@@ -78,6 +85,26 @@ static size_t payload_source(void * ptr, size_t size, size_t nmemb, void * datos
   return len;
 }
 
+char * chomp(char * string) {
+  char * c = strchr(string, '\n');
+  if (NULL != c) {
+    *c = '\0';
+  }
+  return string;
+}
+
+void escribir_bitacora(FILE * archivo, struct evento evento) {
+  char buf[26];
+  fprintf(archivo, "%d : ", serial++);
+  char * str = chomp(ctime_r((time_t *)(&evento.fecha), buf));
+  fprintf(archivo, "%s : ", str);
+  fprintf(archivo, "%d : ", evento.origen);
+  fprintf(archivo, "%d : ", evento.tipo);
+  fprintf(archivo, "%s\n", to_s_te(evento.tipo));
+  fflush(archivo);
+}
+
+
 void send_mail(struct evento evento) {
   CURL *curl;
   CURLcode res = CURLE_OK;
@@ -90,6 +117,8 @@ void send_mail(struct evento evento) {
     perror("asprintf");
     exit(EX_OSERR);
   }
+
+  escribir_bitacora(bitacora_file, evento);
 
   curl = curl_easy_init();
   if (curl) {
@@ -248,9 +277,6 @@ void * consumidor(void * arg) {
 
 int main(int argc, char ** argv) {
   char opt;
-  char * puerto   = NULL;
-  char * bitacora = NULL;
-  char * config   = NULL;
 
   program_name = argv[0];
 
@@ -376,7 +402,18 @@ int main(int argc, char ** argv) {
     }
   }
 
+  //Abrimos la bitacora
+  bitacora_file = fopen(bitacora, "w");
+  if (NULL == bitacora_file) {
+    fprintf(stderr, "fopen: %s: ", bitacora);
+    perror("");
+    exit(EX_IOERR);
+  }
+
   while (1) {
     aceptar_conexion(socks, sockfds);
   }
+
+  //Cerramos la bitacora
+  fclose(bitacora_file);
 }
