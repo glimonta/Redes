@@ -3,29 +3,45 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sysexits.h>
-#include <time.h>
 #include <unistd.h>
 
 #include "evento.h"
 
 const char * to_s_te(enum tipo_evento tipo_evento) {
   switch (tipo_evento) {
-    case TM_COMMUNICATION_OFFLINE            : return "Communication offline"            ;
-    case TM_COMMUNICATION_ERROR              : return "Communication error"              ;
-    case TM_LOW_CASH_ALERT                   : return "Low cash alert"                   ;
-    case TM_RUNNING_OUT_OF_NOTES_IN_CASSETTE : return "Running out of notes in cassette" ;
-    case TM_EMPTY                            : return "Empty"                            ;
-    case TM_SERVICE_MODE_ENTERED             : return "Service mode entered"             ;
-    case TM_SERVICE_MODE_LEFT                : return "Service mode left"                ;
-    case TM_DEVICE_DID_NOT_ANSWER_AS_EXPECTED: return "Device did not answer as expected";
-    case TM_THE_PROTOCOL_WAS_CANCELLED       : return "The protocol was cancelled"       ;
-    case TM_LOW_PAPER_WARNING                : return "Low paper warning"                ;
-    case TM_PRINTER_ERROR                    : return "Printer error"                    ;
-    case TM_PAPER_OUT_CONDITION              : return "Paper-out condition"              ;
-    case TM_SUCCESS                          : return "Success"                          ;
+    case TE_COMMUNICATION_OFFLINE            : return "Communication Offline"            ;
+    case TE_COMMUNICATION_ERROR              : return "Communication error"              ;
+    case TE_LOW_CASH_ALERT                   : return "Low Cash alert"                   ;
+    case TE_RUNNING_OUT_OF_NOTES_IN_CASSETTE : return "Running Out of notes in cassette" ;
+    case TE_EMPTY                            : return "empty"                            ;
+    case TE_SERVICE_MODE_ENTERED             : return "Service mode entered"             ;
+    case TE_SERVICE_MODE_LEFT                : return "Service mode left"                ;
+    case TE_DEVICE_DID_NOT_ANSWER_AS_EXPECTED: return "device did not answer as expected";
+    case TE_THE_PROTOCOL_WAS_CANCELLED       : return "The protocol was cancelled"       ;
+    case TE_LOW_PAPER_WARNING                : return "Low Paper warning"                ;
+    case TE_PRINTER_ERROR                    : return "Printer error"                    ;
+    case TE_PAPER_OUT_CONDITION              : return "Paper-out condition"              ;
     default: assert(0);
   }
+}
+
+enum tipo_evento from_s_te(const char * mensaje) {
+    if (0 == strcmp("Communication Offline"            , mensaje)) return TE_COMMUNICATION_OFFLINE            ;
+    if (0 == strcmp("Communication error"              , mensaje)) return TE_COMMUNICATION_ERROR              ;
+    if (0 == strcmp("Low Cash alert"                   , mensaje)) return TE_LOW_CASH_ALERT                   ;
+    if (0 == strcmp("Running Out of notes in cassette" , mensaje)) return TE_RUNNING_OUT_OF_NOTES_IN_CASSETTE ;
+    if (0 == strcmp("empty"                            , mensaje)) return TE_EMPTY                            ;
+    if (0 == strcmp("Service mode entered"             , mensaje)) return TE_SERVICE_MODE_ENTERED             ;
+    if (0 == strcmp("Service mode left"                , mensaje)) return TE_SERVICE_MODE_LEFT                ;
+    if (0 == strcmp("device did not answer as expected", mensaje)) return TE_DEVICE_DID_NOT_ANSWER_AS_EXPECTED;
+    if (0 == strcmp("The protocol was cancelled"       , mensaje)) return TE_THE_PROTOCOL_WAS_CANCELLED       ;
+    if (0 == strcmp("Low Paper warning"                , mensaje)) return TE_LOW_PAPER_WARNING                ;
+    if (0 == strcmp("Printer error"                    , mensaje)) return TE_PRINTER_ERROR                    ;
+    if (0 == strcmp("Paper-out condition"              , mensaje)) return TE_PAPER_OUT_CONDITION              ;
+    return TE_ERROR;
+    assert(0);
 }
 
 void escribir(int fd, void * buf, size_t count) {
@@ -43,10 +59,10 @@ void escribir(int fd, void * buf, size_t count) {
 }
 
 void enviar(int socket, struct evento evento) {
-  escribir(socket, &evento.origen , sizeof(evento.origen ));
-  escribir(socket, &evento.destino, sizeof(evento.destino));
-  escribir(socket, &evento.fecha  , sizeof(evento.fecha  ));
-  escribir(socket, &evento.tipo   , sizeof(evento.tipo   ));
+  escribir(socket, &evento.origen, sizeof(evento.origen));
+  escribir(socket, &evento.fecha , sizeof(evento.fecha ));
+  escribir(socket, &evento.tipo  , sizeof(evento.tipo  ));
+  escribir(socket, &evento.serial, sizeof(evento.serial));
 }
 
 void leer(int socket, void * buf, size_t count) {
@@ -66,27 +82,30 @@ void leer(int socket, void * buf, size_t count) {
 
 struct evento recibir(int socket) {
   struct evento evento;
-  leer(socket, &evento.origen , sizeof(evento.origen ));
-  leer(socket, &evento.destino, sizeof(evento.destino));
-  leer(socket, &evento.fecha  , sizeof(evento.fecha  ));
-  leer(socket, &evento.tipo   , sizeof(evento.tipo   ));
+  leer(socket, &evento.origen, sizeof(evento.origen));
+  leer(socket, &evento.fecha , sizeof(evento.fecha ));
+  leer(socket, &evento.tipo  , sizeof(evento.tipo  ));
+  leer(socket, &evento.serial, sizeof(evento.serial));
   return evento;
 }
 
-struct evento evento
-  ( uint32_t origen
-  , uint32_t destino
-  , enum tipo_evento tipo
-  )
-{
-  struct timespec t;
-  clock_gettime(CLOCK_REALTIME, &t);
-  struct evento e =
-    { .origen  = origen
-    , .destino = destino
-    , .fecha   = t.tv_sec
-    , .tipo    = tipo
-    }
-  ;
-  return e;
+int evento_valido(struct evento evento) {
+  switch (evento.tipo) {
+    case TE_COMMUNICATION_OFFLINE            :
+    case TE_COMMUNICATION_ERROR              :
+    case TE_LOW_CASH_ALERT                   :
+    case TE_RUNNING_OUT_OF_NOTES_IN_CASSETTE :
+    case TE_EMPTY                            :
+    case TE_SERVICE_MODE_ENTERED             :
+    case TE_SERVICE_MODE_LEFT                :
+    case TE_DEVICE_DID_NOT_ANSWER_AS_EXPECTED:
+    case TE_THE_PROTOCOL_WAS_CANCELLED       :
+    case TE_LOW_PAPER_WARNING                :
+    case TE_PRINTER_ERROR                    :
+    case TE_PAPER_OUT_CONDITION              :
+      return 1;
+
+    default:
+      return 0;
+  }
 }

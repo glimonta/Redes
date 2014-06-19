@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -5,12 +6,14 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sysexits.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "evento.h"
 
 char * program_name;
 const int no_sock = -1;
+uint32_t origen;
 
 void exit_usage(int exit_code) {
   fprintf(
@@ -34,7 +37,7 @@ void * with_server(char * servidor, char * puerto, char * puerto_local, void * (
   direccion_local.sin_family = AF_INET;
   if (NULL != puerto_local) {
     int puerto_numerico;
-    if ( 1 != sscanf(puerto_local, "%d", &puerto_numerico)) {
+    if (1 != sscanf(puerto_local, "%d", &puerto_numerico)) {
       fprintf(stderr, "El puerto local debe ser un número decimal.\n");
       exit_usage(EX_USAGE);
     }
@@ -59,7 +62,7 @@ void * with_server(char * servidor, char * puerto, char * puerto_local, void * (
     }
   }
 
-  int socket_servidor;
+  int socket_servidor = no_sock;
   for (struct addrinfo * result = results; result != NULL; result = result->ai_next) {
     if ((socket_servidor = socket(result->ai_family, result->ai_socktype, result->ai_protocol)) == -1) {
       perror("socket");
@@ -106,9 +109,7 @@ void * with_server(char * servidor, char * puerto, char * puerto_local, void * (
 }
 
 void * enviar_evento(int socket_servidor, void * datos) {
-  enum tipo_evento codigo = *(enum tipo_evento *)datos;
-
-  enviar(socket_servidor, evento(12345, 67890, codigo));
+  enviar(socket_servidor, *(struct evento *)datos);
   return NULL;
 }
 
@@ -118,6 +119,7 @@ int main(int argc, char ** argv) {
   char * puerto       = NULL;
   char * puerto_local = NULL;
 
+  origen = rand();
   program_name = argv[0];
 
   while ((opt = getopt(argc, argv, "d:p:l:")) != -1) {
@@ -139,21 +141,50 @@ int main(int argc, char ** argv) {
     exit_usage(EX_USAGE);
   }
 
+  while (1) {
+    int mes, dia, anio, horas, minutos, serial;
+    char * mensaje;
+    int i;
+    errno = 0;
+    switch (i = scanf("%d:%d:%d:%d:%d:%d %m[^\n]", &mes, &dia, &anio, &horas, &minutos, &serial, &mensaje)) {
+      case EOF:
+        if (0 == errno) exit(EX_OK);
+        perror("scanf");
+        exit(EX_IOERR);
 
-  int c = 1;
-  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
-  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
-  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
-  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
-  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
-  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
-  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
-  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
-  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
-  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
-  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
-  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
-  with_server(servidor, puerto, puerto_local, enviar_evento, &c); c++;
+      default:
+        fprintf(stderr, "El formato de la entrada es inadecuado :(\n");
+        exit(EX_DATAERR);
+
+      case 7:
+        break;
+    }
+
+    struct tm fecha =
+      { .tm_sec   = 0
+      , .tm_min   = minutos
+      , .tm_hour  = horas
+      , .tm_mday  = dia
+      , .tm_mon   = mes
+      , .tm_year  = anio
+      , .tm_wday  = 0
+      , .tm_yday  = 0
+      , .tm_isdst = 0
+      }
+    ;
+
+    struct evento evento =
+      { .origen = origen
+      , .fecha  = mktime(&fecha)
+      , .tipo   = from_s_te(mensaje)
+      , .serial = serial
+      }
+    ;
+
+    with_server(servidor, puerto, puerto_local, enviar_evento, &evento);
+
+    free(mensaje);
+  }
 
   exit(EX_OK);
 }

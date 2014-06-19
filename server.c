@@ -29,8 +29,11 @@ char * puerto   = NULL;
 char * bitacora = NULL;
 char * config   = NULL;
 
-int serial = 0;
 FILE * bitacora_file;
+FILE * config_file;
+
+#define N_PATRONES 13
+int patrones[N_PATRONES];
 
 Deque clientes;
 pthread_mutex_t mutex_clientes = PTHREAD_MUTEX_INITIALIZER;
@@ -95,7 +98,7 @@ char * chomp(char * string) {
 
 void escribir_bitacora(FILE * archivo, struct evento evento) {
   char buf[26];
-  fprintf(archivo, "%d : ", serial++);
+  fprintf(archivo, "%d : ", evento.serial);
   char * str = chomp(ctime_r((time_t *)(&evento.fecha), buf));
   fprintf(archivo, "%s : ", str);
   fprintf(archivo, "%d : ", evento.origen);
@@ -103,7 +106,6 @@ void escribir_bitacora(FILE * archivo, struct evento evento) {
   fprintf(archivo, "%s\n", to_s_te(evento.tipo));
   fflush(archivo);
 }
-
 
 void send_mail(struct evento evento) {
   CURL *curl;
@@ -118,11 +120,9 @@ void send_mail(struct evento evento) {
     exit(EX_OSERR);
   }
 
-  escribir_bitacora(bitacora_file, evento);
-
   curl = curl_easy_init();
   if (curl) {
-    curl_easy_setopt(curl, CURLOPT_URL, "smtp://smtp.ldc.usb.ve:2500");
+    curl_easy_setopt(curl, CURLOPT_URL, "smtp://smtp.ldc.usb.ve");
     curl_easy_setopt(curl, CURLOPT_MAIL_FROM, FROM);
     recipients = curl_slist_append(recipients, to);
     curl_easy_setopt(curl, CURLOPT_MAIL_RCPT, recipients);
@@ -196,16 +196,7 @@ void aceptar_conexion(int socks, int sockfds[]) {
     if (FD_ISSET(sockfds[i], &readfds)) {
       ++j;
 
-      int cliente = accept(sockfds[i], NULL, NULL);
-      if (-1 == cliente) {
-        if (EAGAIN == errno || EWOULDBLOCK == errno) {
-          continue;
-        } else {
-          perror("Error aceptando la conexión del cliente");
-          exit(EX_IOERR);
-        }
-      }
-      encolar(cliente);
+      encolar(sockfds[i]);
     }
   }
 }
@@ -216,7 +207,7 @@ void * desencolar (void * datos) {
   return pop_front_deque(clientes);
 }
 
-void * with_clientes(void * (*f)(void *), void * datos) {
+void * with_clientes(void * (*f)(void *), void * evento) {
   int s = pthread_mutex_lock(&mutex_clientes);
   if (s != 0) {
     // Si el código del programa está bien, esto nunca debería suceder.  Sin embargo, esta verificación puede ayudar a detectar errores de programación.
@@ -238,7 +229,7 @@ void * with_clientes(void * (*f)(void *), void * datos) {
     // Al ocurrir un signal sobre esta condición, esta función adquiere de nuevo el mutex y retorna.  Si otro consumidor no se nos adelantó, la condición del ciclo no se cumplirá (porque seremos los primeros en ver el nuevo dato disponible en la pila) y saldremos del ciclo.
   }
 
-  void * ret = f(datos);
+  void * ret = f(evento);
 
   s = pthread_mutex_unlock(&mutex_clientes);
   if (s != 0) {
@@ -251,32 +242,95 @@ void * with_clientes(void * (*f)(void *), void * datos) {
   return ret;
 }
 
+int patrones_contains(int codigo) {
+  size_t i = 0;
+
+  while((i < sizeof(N_PATRONES)) && (0 != patrones[i])) {
+    if (codigo == patrones[i]) {
+      return 1;
+    }
+    ++i;
+  }
+  return 0;
+}
+
 void * consumidor(void * arg) {
   int * num_consumidor = (int *)arg;
 
   while(1) {
-    int * cliente_p = (int *)with_clientes(desencolar, NULL);
-    int cliente = *cliente_p;
+    int * listener_p = (int *)with_clientes(desencolar, NULL);
+    int listener = *listener_p;
+
+    free(listener_p);
+
+    int cliente = accept(listener, NULL, NULL);
+    if (-1 == cliente) {
+      if (EAGAIN == errno || EWOULDBLOCK == errno) {
+        continue;
+      } else {
+        perror("Error aceptando la conexión del cliente");
+        exit(EX_IOERR);
+      }
+    }
 
     struct evento evento = recibir(cliente);
+
+    if (!evento_valido(evento)) {
+      close(cliente);
+      continue;
+    }
 
     pthread_mutex_lock(&mutex_stdout);
     { // Sección crítica
       printf("Consumidor %d: recibí: %s.\n", *num_consumidor, to_s_te(evento.tipo));
       fflush(stdout);
+      escribir_bitacora(bitacora_file, evento);
+      fflush(bitacora_file);
     }
     pthread_mutex_unlock(&mutex_stdout);
 
-    send_mail(evento);
+    if (patrones_contains(evento.tipo)) {
+      send_mail(evento);
+    }
 
     close(cliente);
-
-    free(cliente_p);
   }
+}
+
+void leer_config(void) {
+  //Abrimos el archivo de configuración
+  config_file = fopen(config, "r");
+  if (NULL == config_file) {
+    fprintf(stderr, "fopen: %s: ", config);
+    perror("");
+    exit(EX_IOERR);
+  }
+
+  char * correo;
+  if (1 == fscanf(config_file, " %ms", &correo)) {
+    to = correo;
+  }
+
+  int num, i = 0;
+  while (1 == fscanf(config_file, "%d", &num)) {
+    patrones[i] = num;
+    ++i;
+  }
+
+  //Cerramos el archivo de configuración
+  fclose(config_file);
 }
 
 int main(int argc, char ** argv) {
   char opt;
+
+  {
+    size_t i = 0;
+    while (i < sizeof(N_PATRONES)) {
+      patrones[i] = 0;
+      ++i;
+    }
+  }
 
   program_name = argv[0];
 
@@ -300,7 +354,7 @@ int main(int argc, char ** argv) {
   }
 
   if (NULL != config) {
-    /* Leer el archivo de configuración */
+    leer_config();
   }
 
   struct addrinfo hints;
