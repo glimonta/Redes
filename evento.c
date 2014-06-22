@@ -1,3 +1,13 @@
+/**
+ * @file evento.c
+ * @author Gabriela Limonta 10-10385
+ * @author John Delgado 10-10196
+ *
+ * Contiene la implementación de las funciones que
+ * permiten el manejo de mensajes de eventos entre
+ * el SVR y el ATM.
+ *
+ */
 #include <assert.h>
 #include <errno.h>
 #include <stdint.h>
@@ -9,6 +19,12 @@
 
 #include "evento.h"
 
+/**
+ * Se encarga de transformar un código de evento en su mensaje asociado.
+ * @param tipo_evento código del evento.
+ * @return retorna una representación en string del mensaje asociado al
+ * código de mensaje.
+ */
 const char * to_s_te(enum tipo_evento tipo_evento) {
   switch (tipo_evento) {
     case TE_COMMUNICATION_OFFLINE            : return "Communication Offline"            ;
@@ -27,6 +43,11 @@ const char * to_s_te(enum tipo_evento tipo_evento) {
   }
 }
 
+/**
+ * Se encarga de transformar un string en su código de evento asociado.
+ * @param mensaje string de mensaje del evento.
+ * @return retorna el código de evento asociado al string de mensaje indicado.
+ */
 enum tipo_evento from_s_te(const char * mensaje) {
     if (0 == strcmp("Communication Offline"            , mensaje)) return TE_COMMUNICATION_OFFLINE            ;
     if (0 == strcmp("Communication error"              , mensaje)) return TE_COMMUNICATION_ERROR              ;
@@ -44,6 +65,13 @@ enum tipo_evento from_s_te(const char * mensaje) {
     assert(0);
 }
 
+/**
+ * Se encarga de escribir en el file descriptor del socket el contenido
+ * de buf.
+ * @param fd file descriptor del socket donde se va a escribir.
+ * @param buf contenido que se va a escribir en fd.
+ * @param count tamaño del contenido que se va a escribir.
+ */
 void escribir(int fd, void * buf, size_t count) {
   while (count > 0) {
     int escrito = write(fd, buf, count);
@@ -58,6 +86,11 @@ void escribir(int fd, void * buf, size_t count) {
   }
 }
 
+/**
+ * Se encarga de enviar un evento al socket.
+ * @param socket file descriptor del socket al que se va a enviar.
+ * @param evento evento que se va a enviar a través del socket.
+ */
 void enviar(int socket, struct evento evento) {
   escribir(socket, &evento.origen, sizeof(evento.origen));
   escribir(socket, &evento.fecha , sizeof(evento.fecha ));
@@ -65,6 +98,13 @@ void enviar(int socket, struct evento evento) {
   escribir(socket, &evento.serial, sizeof(evento.serial));
 }
 
+/**
+ * Se encarga de leer del file descriptor del socket el contenido
+ * de buf.
+ * @param socket file descriptor del socket del que se va a leer.
+ * @param buf direccion donde se almacenará lo leido en fd.
+ * @param count tamaño del contenido que se va a leer.
+ */
 void leer(int socket, void * buf, size_t count) {
   while (count > 0) {
     int leido = read(socket, buf, count);
@@ -80,6 +120,11 @@ void leer(int socket, void * buf, size_t count) {
   }
 }
 
+/**
+ * Se encarga de recibir un evento del socket.
+ * @param socket file descriptor del socket del que se va a recibir.
+ * @return retorna un struct evento con la información recibida.
+ */
 struct evento recibir(int socket) {
   struct evento evento;
   leer(socket, &evento.origen, sizeof(evento.origen));
@@ -89,6 +134,11 @@ struct evento recibir(int socket) {
   return evento;
 }
 
+/**
+ * Se encarga de indicar si un evento es válido.
+ * @param evento evento que se verificará.
+ * @return retorna 0 si es un evento válido, retorna -1 si es inválido.
+ */
 int evento_valido(struct evento evento) {
   switch (evento.tipo) {
     case TE_COMMUNICATION_OFFLINE            :
