@@ -48,6 +48,8 @@ pthread_mutex_t mutex_clientes = PTHREAD_MUTEX_INITIALIZER;    // Mutex para la 
 pthread_mutex_t mutex_stdout = PTHREAD_MUTEX_INITIALIZER;      // Mutex para la stdout.
 pthread_cond_t cond_stack_readable = PTHREAD_COND_INITIALIZER; //Condición que indica si se puede leer de la cola.
 
+int numero_de_desconexiones = 0; // Contador de perdidas de conexiones
+
 /**
  * Se encarga de imprimir un mensaje de error cuando el usuario
  * se equivoca en la invocación del SVR y abortar la ejecución del
@@ -227,6 +229,48 @@ void encolar(int num) {
   }
 }
 
+Deque ultimas_conexiones;
+
+struct ultima_conexion {
+  uint32_t origen;
+  uint64_t fecha;
+};
+
+int comparar_conexion(void * actual_, void * origen_) {
+  struct ultima_conexion * actual = actual_;
+  uint32_t * origen = origen_;
+  return actual->origen == *origen;
+}
+
+void ver_ultima_conexion(void * ultima_conexion_) {
+  struct ultima_conexion * ultima_conexion = (struct ultima_conexion *)ultima_conexion_;
+  struct timespec t;
+  clock_gettime(CLOCK_REALTIME, &t);
+
+  int segundos = t.tv_sec - ultima_conexion->fecha;
+  if (segundos > 5) { //FIXME
+    printf("Timeout por retardo o perdida de conexion en el ATM: %u\n", ultima_conexion->origen);
+
+    // Creamos un evento a partir de la información tomada anteriormente.
+    struct evento evento =
+      { .origen = ultima_conexion->origen
+      , .fecha  = t.tv_sec
+      , .tipo   = TE_FALLA_DE_CONEXION
+      , .serial = numero_de_desconexiones++
+      }
+    ;
+
+    pthread_mutex_lock(&mutex_stdout);
+    { // Sección crítica
+      escribir_bitacora(bitacora_file, evento);
+      fflush(bitacora_file);
+    }
+    pthread_mutex_unlock(&mutex_stdout);
+
+    delete_first_deque(comparar_conexion, ultimas_conexiones, &ultima_conexion->origen);
+  }
+}
+
 /**
  * Se encarga de aceptar la conexion de algun cliente y encolarla en la cola clientes
  * para que algún consumidor atienda la solicitud. Es el productor.
@@ -246,10 +290,11 @@ void aceptar_conexion(int socks, int sockfds[]) {
 
   // Buscamos con select los file descriptors disponibles para leer de ellos.
   int disponibles;
-  switch (disponibles = select(nfds + 1, &readfds, NULL, NULL, NULL)) {
+  struct timeval t;
+  t.tv_sec = 3; //FIXME
+  switch (disponibles = select(nfds + 1, &readfds, NULL, NULL, &t)) {
     case 0:
-      fprintf(stderr, "Select retorno 0, revisar el codigo");
-      exit(EX_SOFTWARE);
+      break;
 
     case -1:
       perror("Error esperando por conexiones de clientes");
@@ -258,6 +303,8 @@ void aceptar_conexion(int socks, int sockfds[]) {
     default:
       break;
   }
+
+  mapM_deque(ver_ultima_conexion, ultimas_conexiones);
 
   // Revisamos los sockets disponibles y si pertenecen al set retornado por
   // select entonces los encolamos para que un consumidor se encargue de atender
@@ -286,7 +333,7 @@ void * desencolar (void * datos) {
 /**
  * Se encarga de procesar una conexion de la cola de clientes.
  * @param f funcion con la que va a procesar la conexión de la cola de clientes.
- * @param datos 
+ * @param datos
  * @return retorna lo que se saca de la cola.
  */
 void * with_clientes(void * (*f)(void *), void * datos) {
@@ -363,12 +410,29 @@ void * consumidor(void * arg) {
       continue;
     }
 
+    struct timespec t;
+    clock_gettime(CLOCK_REALTIME, &t);
+
+    struct ultima_conexion * ultima_conexion;
+
+    if (NULL != (ultima_conexion = (struct ultima_conexion *)find_deque(comparar_conexion, ultimas_conexiones, &evento.origen))) {
+      ultima_conexion->fecha = t.tv_sec;
+    } else {
+      struct ultima_conexion * nueva_conexion = calloc(1, sizeof(struct ultima_conexion));
+      nueva_conexion->origen = evento.origen;
+      nueva_conexion->fecha  = t.tv_sec;
+
+      push_front_deque(ultimas_conexiones, nueva_conexion);
+    }
+
     pthread_mutex_lock(&mutex_stdout);
     { // Sección crítica
       printf("Consumidor %d: recibí: %s.\n", num_consumidor, to_s_te(evento.tipo));
       fflush(stdout);
-      escribir_bitacora(bitacora_file, evento);
-      fflush(bitacora_file);
+      if (TE_HEARTBEAT != evento.tipo) {
+        escribir_bitacora(bitacora_file, evento);
+        fflush(bitacora_file);
+      }
     }
     pthread_mutex_unlock(&mutex_stdout);
 
@@ -530,6 +594,7 @@ int main(int argc, char ** argv) {
 
   int num_consumidores = 10;
   clientes = empty_deque();
+  ultimas_conexiones = empty_deque();
   pthread_t consumidores[num_consumidores];
   int s;
 

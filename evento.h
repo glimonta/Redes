@@ -16,6 +16,7 @@
  */
 enum tipo_evento
   { TE_ERROR                             = -1
+  , TE_HEARTBEAT                         = 0
   , TE_COMMUNICATION_OFFLINE             = 1
   , TE_COMMUNICATION_ERROR               = 2
   , TE_LOW_CASH_ALERT                    = 3
@@ -28,6 +29,7 @@ enum tipo_evento
   , TE_LOW_PAPER_WARNING                 = 10
   , TE_PRINTER_ERROR                     = 11
   , TE_PAPER_OUT_CONDITION               = 12
+  , TE_FALLA_DE_CONEXION                 = 13
   }
 ;
 

@@ -135,3 +135,56 @@ void * pop_back_deque(Deque d) {
 int length_deque(Deque d) {
   return d->size;
 }
+
+/**
+ * Se encarga de aplicar una funcion a todos los elementos de la lista.
+ * @param f funcion a aplicar.
+ * @param d lista o cola de elementos.
+ */
+void mapM_deque(void (*f)(void *), Deque d) {
+  for (struct cell * c = d->first; NULL != c; c = c->next) {
+    f(c->cont);
+  }
+}
+
+/**
+ * Busca elementos en la lista usando un predicado.
+ * @param f predicado.
+ * @param d lista o cola de elementos.
+ * @return elemento de la lista encontrado, null si no lo encontró.
+ */
+void * find_deque(int (*f)(void *, void *), Deque d, void * datos) {
+  for (struct cell * c = d->first; NULL != c; c = c->next) {
+    if (f(c->cont, datos)) {
+      return c->cont;
+    }
+  }
+
+  return NULL;
+}
+
+void * delete_first_deque(int (*f)(void *, void *), Deque d, void * datos) {
+  for (struct cell * c = d->first; NULL != c; c = c->next) {
+    if (f(c->cont, datos)) {
+      void * ret = c->cont;
+      if (1 == d->size) {
+        d->first = NULL;
+        d->last = NULL;
+      } else if (c == d->first) {
+        d->first = c->next;
+        d->first->prev = NULL;
+      } else if (c == d->last) {
+        d->last = c->prev;
+        d->last->next = NULL;
+      } else {
+        c->prev->next = c->next;
+        c->next->prev = c->prev;
+      }
+      --d->size;
+      free(c);
+      return ret;
+    }
+  }
+
+  return NULL;
+}

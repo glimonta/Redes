@@ -27,6 +27,8 @@
  */
 const char * to_s_te(enum tipo_evento tipo_evento) {
   switch (tipo_evento) {
+    case TE_FALLA_DE_CONEXION                : return "Falla de conexion"                ;
+    case TE_HEARTBEAT                        : return "Heartbeat"                        ;
     case TE_COMMUNICATION_OFFLINE            : return "Communication Offline"            ;
     case TE_COMMUNICATION_ERROR              : return "Communication error"              ;
     case TE_LOW_CASH_ALERT                   : return "Low Cash alert"                   ;
@@ -49,6 +51,8 @@ const char * to_s_te(enum tipo_evento tipo_evento) {
  * @return retorna el código de evento asociado al string de mensaje indicado.
  */
 enum tipo_evento from_s_te(const char * mensaje) {
+    if (0 == strcmp("Falla de conexion"                , mensaje)) return TE_FALLA_DE_CONEXION                ;
+    if (0 == strcmp("Heartbeat"                        , mensaje)) return TE_HEARTBEAT                        ;
     if (0 == strcmp("Communication Offline"            , mensaje)) return TE_COMMUNICATION_OFFLINE            ;
     if (0 == strcmp("Communication error"              , mensaje)) return TE_COMMUNICATION_ERROR              ;
     if (0 == strcmp("Low Cash alert"                   , mensaje)) return TE_LOW_CASH_ALERT                   ;
@@ -135,12 +139,14 @@ struct evento recibir(int socket) {
 }
 
 /**
- * Se encarga de indicar si un evento es válido.
+ * Clasifica los eventos que son manejados por el servidor.
  * @param evento evento que se verificará.
  * @return retorna 0 si es un evento válido, retorna -1 si es inválido.
  */
 int evento_valido(struct evento evento) {
   switch (evento.tipo) {
+    case TE_HEARTBEAT                        :
+    case TE_FALLA_DE_CONEXION                :
     case TE_COMMUNICATION_OFFLINE            :
     case TE_COMMUNICATION_ERROR              :
     case TE_LOW_CASH_ALERT                   :

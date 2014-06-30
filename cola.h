@@ -48,3 +48,20 @@ void * pop_back_deque(Deque d);
  * @return tamaño de la cola.
  */
 int length_deque(Deque d);
+
+/**
+ * Se encarga de aplicar una funcion a todos los elementos de la lista.
+ * @param f funcion a aplicar.
+ * @param d lista o cola de elementos.
+ */
+void mapM_deque(void (*f)(void *), Deque d);
+
+/**
+ * Busca elementos en la lista usando un predicado.
+ * @param f predicado.
+ * @param d lista o cola de elementos.
+ * @return elemento de la lista encontrado, null si no lo encontró.
+ */
+void * find_deque(int (*f)(void *, void *), Deque d, void * datos);
+
+void * delete_first_deque(int (*f)(void *, void *), Deque d, void * datos);

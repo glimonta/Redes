@@ -8,6 +8,7 @@
  */
 #include <errno.h>
 #include <netdb.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +23,12 @@
 char * program_name;    // Nombre del programa.
 const int no_sock = -1; // Indica no socket.
 uint32_t origen;        // Numero del ATM.
+
+char * servidor     = NULL;
+char * puerto       = NULL;
+char * puerto_local = NULL;
+
+pthread_mutex_t mutex_socket = PTHREAD_MUTEX_INITIALIZER;    // Mutex para el socket.
 
 /**
  * Se encarga de imprimir un mensaje de error cuando el usuario
@@ -159,43 +166,47 @@ void * enviar_evento(int socket_servidor, void * datos) {
   return NULL;
 }
 
-/**
- * Es el main del programa se encarga de parsear los argumentos de linea de comandos y
- * de leer de entrada estándar los eventos que ocurren en el ATM para enviarlos al servidor.
- */
-int main(int argc, char ** argv) {
-  char opt;
-  char * servidor     = NULL;
-  char * puerto       = NULL;
-  char * puerto_local = NULL;
+void * enviar_heartbeat(void * datos) {
+  (void)datos;
+  while (1) {
+    struct timespec t;
+    clock_gettime(CLOCK_REALTIME, &t);
 
-  origen = rand();
-  program_name = argv[0];
+    // Creamos un evento heartbeat
+    struct evento evento =
+      { .origen = origen
+      , .fecha  = t.tv_sec
+      , .tipo   = TE_HEARTBEAT
+      , .serial = rand()
+      }
+    ;
 
-  // Parseamos los argumentos -d, -p y -l de la linea de comandos
-  // Si se pone alguna opción que no sea una de las anteriores emitimos un error
-  // para indicarle la correcta invocación al usuario.
-  while ((opt = getopt(argc, argv, "d:p:l:")) != -1) {
-    switch (opt) {
-      case 'd': servidor     = optarg; break;
-      case 'p': puerto       = optarg; break;
-      case 'l': puerto_local = optarg; break;
-      default:
-        exit_usage(EX_USAGE);
+    int s = pthread_mutex_lock(&mutex_socket);
+    if (s != 0) {
+      // Si el código del programa está bien, esto nunca debería suceder.  Sin embargo, esta verificación puede ayudar a detectar errores de programación.
+      errno = s;
+      perror("Error intentando entrar en la sección crítica del recibidor de eventos; pthread_mutex_lock");
+      exit(EX_SOFTWARE);
     }
-  }
+    { // Sección Crítica
+      // Enviamos el evento creado al servidor.
+      with_server(servidor, puerto, puerto_local, enviar_evento, &evento);
+    }
 
-  // Si no se indicó el servidor se emite un mensaje de error.
-  if (NULL == servidor) {
-    fprintf(stderr, "El nombre o dirección IP del servidor es obligatorio.\n");
-    exit_usage(EX_USAGE);
-  }
-  // Si no se indicó el puerto se emite un mensaje de error.
-  if (NULL == puerto) {
-    fprintf(stderr, "El número del puerto remoto es obligatorio.\n");
-    exit_usage(EX_USAGE);
-  }
+    s = pthread_mutex_unlock(&mutex_socket);
+    if (s != 0) {
+      // Si el código del programa está bien, esto nunca debería suceder.  Sin embargo, esta verificación puede ayudar a detectar errores de programación.
+      errno = s;
+      perror("Error intentando salir de la sección crítica del recibidor de eventos; pthread_mutex_unlock");
+      exit(EX_SOFTWARE);
+    }
 
+    sleep(1); //FIXME
+  }
+}
+
+void * recibir_eventos(void * datos) {
+  (void)datos;
   // Parseamos la entrada estándar. Los eventos deben tener el siguiente formato:
   // <mensaje del evento>
   while (1) {
@@ -228,11 +239,93 @@ int main(int argc, char ** argv) {
       }
     ;
 
-    // Enviamos el evento creado al servidor.
-    with_server(servidor, puerto, puerto_local, enviar_evento, &evento);
+    int s = pthread_mutex_lock(&mutex_socket);
+    if (s != 0) {
+      // Si el código del programa está bien, esto nunca debería suceder.  Sin embargo, esta verificación puede ayudar a detectar errores de programación.
+      errno = s;
+      perror("Error intentando entrar en la sección crítica del recibidor de eventos; pthread_mutex_lock");
+      exit(EX_SOFTWARE);
+    }
+    { // Sección Crítica
+      // Enviamos el evento creado al servidor.
+      with_server(servidor, puerto, puerto_local, enviar_evento, &evento);
+    }
+
+    s = pthread_mutex_unlock(&mutex_socket);
+    if (s != 0) {
+      // Si el código del programa está bien, esto nunca debería suceder.  Sin embargo, esta verificación puede ayudar a detectar errores de programación.
+      errno = s;
+      perror("Error intentando salir de la sección crítica del recibidor de eventos; pthread_mutex_unlock");
+      exit(EX_SOFTWARE);
+    }
 
     // Liberamos el espacio de memoria del string mensaje.
     free(mensaje);
+  }
+}
+
+/**
+ * Es el main del programa se encarga de parsear los argumentos de linea de comandos y
+ * de leer de entrada estándar los eventos que ocurren en el ATM para enviarlos al servidor.
+ */
+int main(int argc, char ** argv) {
+  char opt;
+
+  {
+    struct timespec t;
+    clock_gettime(CLOCK_REALTIME, &t);
+    srand(t.tv_nsec);
+  }
+
+  origen = rand();
+  program_name = argv[0];
+
+  // Parseamos los argumentos -d, -p y -l de la linea de comandos
+  // Si se pone alguna opción que no sea una de las anteriores emitimos un error
+  // para indicarle la correcta invocación al usuario.
+  while ((opt = getopt(argc, argv, "d:p:l:")) != -1) {
+    switch (opt) {
+      case 'd': servidor     = optarg; break;
+      case 'p': puerto       = optarg; break;
+      case 'l': puerto_local = optarg; break;
+      default:
+        exit_usage(EX_USAGE);
+    }
+  }
+
+  // Si no se indicó el servidor se emite un mensaje de error.
+  if (NULL == servidor) {
+    fprintf(stderr, "El nombre o dirección IP del servidor es obligatorio.\n");
+    exit_usage(EX_USAGE);
+  }
+  // Si no se indicó el puerto se emite un mensaje de error.
+  if (NULL == puerto) {
+    fprintf(stderr, "El número del puerto remoto es obligatorio.\n");
+    exit_usage(EX_USAGE);
+  }
+
+  pthread_t marcapasos, manejador;
+  int s;
+
+  s = pthread_create(&marcapasos, NULL, &enviar_heartbeat, NULL);
+  if (s != 0) {
+    errno = s;
+    perror("No fue posible crear hilo marcapasos; pthread_create: ");
+    exit(EX_OSERR);
+  }
+
+  s = pthread_create(&manejador, NULL, &recibir_eventos, NULL);
+  if (s != 0) {
+    errno = s;
+    perror("No fue posible crear hilo marcapasos; pthread_create: ");
+    exit(EX_OSERR);
+  }
+
+  // Esperamos a que el manejador termine.
+  // Si hay un error se imprime un mensaje.
+  if (0 != pthread_join(manejador, NULL)) {
+    perror("pthread_join");
+    exit(EX_OSERR);
   }
 
   exit(EX_OK);
