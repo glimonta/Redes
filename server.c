@@ -229,6 +229,7 @@ void encolar(int num) {
   }
 }
 
+// Cola para llevar la cuenta de las ultimas conexiones de cada cliente.
 Deque ultimas_conexiones;
 
 struct ultima_conexion {
@@ -236,19 +237,30 @@ struct ultima_conexion {
   uint64_t fecha;
 };
 
+/**
+ * Se encarga de comparar dos conexiones para ver si provienen del mismo ATM.
+ * @param actual_ conexión actual de la cola de conexiones.
+ * @param origen_ conexión con la que se compara.
+ * @return retorna 1 si son iguales y 0 en caso contrario.
+ */
 int comparar_conexion(void * actual_, void * origen_) {
   struct ultima_conexion * actual = actual_;
   uint32_t * origen = origen_;
   return actual->origen == *origen;
 }
 
+/**
+ * Se encarga de detectar fallos de conectividad en los ATM, si la ultima
+ * conexión es mayor a 5 minutos escribe en la bitacora un evento.
+ * @param ultima_conexion_ ultima conexión de un ATM.
+ */
 void ver_ultima_conexion(void * ultima_conexion_) {
   struct ultima_conexion * ultima_conexion = (struct ultima_conexion *)ultima_conexion_;
   struct timespec t;
   clock_gettime(CLOCK_REALTIME, &t);
 
   int segundos = t.tv_sec - ultima_conexion->fecha;
-  if (segundos > 5) { //FIXME
+  if (segundos > 5) { //FIXME Deberían ser 5 minutos pero para efectos de rapidez al probar usamos 5 segundos.
     printf("Timeout por retardo o perdida de conexion en el ATM: %u\n", ultima_conexion->origen);
 
     // Creamos un evento a partir de la información tomada anteriormente.
@@ -267,6 +279,7 @@ void ver_ultima_conexion(void * ultima_conexion_) {
     }
     pthread_mutex_unlock(&mutex_stdout);
 
+    // Eliminamos de la cola de conexiones a la conexión que acabamos de detectar como caida.
     delete_first_deque(comparar_conexion, ultimas_conexiones, &ultima_conexion->origen);
   }
 }
@@ -281,7 +294,6 @@ void aceptar_conexion(int socks, int sockfds[]) {
   fd_set readfds;
   int nfds = -1;
 
-//FIXME  no recuerdo que hace este ciclo.
   FD_ZERO(&readfds);
   for (int i = 0; i < socks; ++i) {
     FD_SET(sockfds[i], &readfds);
@@ -291,7 +303,9 @@ void aceptar_conexion(int socks, int sockfds[]) {
   // Buscamos con select los file descriptors disponibles para leer de ellos.
   int disponibles;
   struct timeval t;
-  t.tv_sec = 3; //FIXME
+  //FIXME Deberían ser 30 segundos de timeout para revisar si hay conexiones caidas,
+  // se utilizan 3 segundos para facilitar y acortar el tiempo de pruebas.
+  t.tv_sec = 3;
   switch (disponibles = select(nfds + 1, &readfds, NULL, NULL, &t)) {
     case 0:
       break;
@@ -304,6 +318,9 @@ void aceptar_conexion(int socks, int sockfds[]) {
       break;
   }
 
+  // Verificamos para todas las conexiones en la cola de conexiones si alguna ha pasado
+  // mas del tiempo determinado sin comunicarse con el servidor para detectar fallas de
+  // conectividad.
   mapM_deque(ver_ultima_conexion, ultimas_conexiones);
 
   // Revisamos los sockets disponibles y si pertenecen al set retornado por
@@ -347,22 +364,29 @@ void * with_clientes(void * (*f)(void *), void * datos) {
 
   // Mientras NO haya datos en la pila…
   while (!(length_deque(clientes) > 0)) {
-    // …luego, si no nos salimos, esperamos a que alguien inserte datos.  Cuando se entra a esta función, atómicamente se libera el mutex y se comienza a esperar por un signal sobre la condición.
+    // …luego, si no nos salimos, esperamos a que alguien inserte datos.
+    // Cuando se entra a esta función, atómicamente se libera el mutex y se
+    // comienza a esperar por un signal sobre la condición.
     s = pthread_cond_wait(&cond_stack_readable, &mutex_clientes);
     if (s != 0) {
-      // Si el código del programa está bien, esto nunca debería suceder.  Sin embargo, esta verificación puede ayudar a detectar errores de programación.
+      // Si el código del programa está bien, esto nunca debería suceder.
+      // Sin embargo, esta verificación puede ayudar a detectar errores de programación.
       errno = s;
       perror("Error intentando entrar en la sección crítica del consumidor; pthread_mutex_lock");
       exit(EX_SOFTWARE);
     }
-    // Al ocurrir un signal sobre esta condición, esta función adquiere de nuevo el mutex y retorna.  Si otro consumidor no se nos adelantó, la condición del ciclo no se cumplirá (porque seremos los primeros en ver el nuevo dato disponible en la pila) y saldremos del ciclo.
+    // Al ocurrir un signal sobre esta condición, esta función adquiere de
+    // nuevo el mutex y retorna.  Si otro consumidor no se nos adelantó, la
+    // condición del ciclo no se cumplirá (porque seremos los primeros en ver
+    // el nuevo dato disponible en la pila) y saldremos del ciclo.
   }
 
   void * ret = f(datos);
 
   s = pthread_mutex_unlock(&mutex_clientes);
   if (s != 0) {
-    // Si el código del programa está bien, esto nunca debería suceder.  Sin embargo, esta verificación puede ayudar a detectar errores de programación.
+    // Si el código del programa está bien, esto nunca debería suceder.
+    // Sin embargo, esta verificación puede ayudar a detectar errores de programación.
     errno = s;
     perror("Error intentando salir de la sección crítica del consumidor; pthread_mutex_unlock");
     exit(EX_SOFTWARE);
@@ -371,6 +395,13 @@ void * with_clientes(void * (*f)(void *), void * datos) {
   return ret;
 }
 
+/**
+ * Se encarga de verificar si el arreglo de patrones que debemos detectar
+ * para enviar correos con alertas contiene el codigo indicado.
+ * @param codigo codigo que vamos a chequear si existe en el arreglo.
+ * @return retorna 1 si pertenece y 0 en caso contrario.
+ * funciones de hilos.
+ */
 int patrones_contains(int codigo) {
   size_t i = 0;
 
@@ -383,11 +414,18 @@ int patrones_contains(int codigo) {
   return 0;
 }
 
+/**
+ * Se encarga de consumir una conexion de la cola de clientes.
+ * @param arg número de consumidor atendiendo al cliente.
+ * @return retorno no utilizado, solo existe para adaptarse a la firma necesaria para
+ * funciones de hilos.
+ */
 void * consumidor(void * arg) {
   int * num_consumidor_p = (int *)arg;
   int num_consumidor = *num_consumidor_p;
   free(num_consumidor_p);
 
+  // Aceptamos la conexión de algun cliente.
   while(1) {
     int * listener_p = (int *)with_clientes(desencolar, NULL);
     int listener = *listener_p;
@@ -403,8 +441,10 @@ void * consumidor(void * arg) {
       }
     }
 
+    // Recibimos un evento del cliente
     struct evento evento = recibir(cliente);
 
+    // Si no es valido cerramos la conexion y continuamos ejecutando.
     if (!evento_valido(evento)) {
       close(cliente);
       continue;
@@ -415,6 +455,8 @@ void * consumidor(void * arg) {
 
     struct ultima_conexion * ultima_conexion;
 
+    // Si es un evento válido actualizamos la cola de ultimas conexiones para este ATM.
+    // Si ya existe en la cola actualizamos su ultima conexión y si no existe lo agregamos.
     if (NULL != (ultima_conexion = (struct ultima_conexion *)find_deque(comparar_conexion, ultimas_conexiones, &evento.origen))) {
       ultima_conexion->fecha = t.tv_sec;
     } else {
@@ -425,6 +467,7 @@ void * consumidor(void * arg) {
       push_front_deque(ultimas_conexiones, nueva_conexion);
     }
 
+    // Escribimos en la bitácora el evento.
     pthread_mutex_lock(&mutex_stdout);
     { // Sección crítica
       printf("Consumidor %d: recibí: %s.\n", num_consumidor, to_s_te(evento.tipo));
@@ -436,14 +479,22 @@ void * consumidor(void * arg) {
     }
     pthread_mutex_unlock(&mutex_stdout);
 
+    // Si el evento es alguno contenido en el arreglo de patrones a detectar,
+    // enviamos un correo alerta.
     if (patrones_contains(evento.tipo)) {
       send_mail(evento);
     }
 
+    // Cerramos la conexión.
     close(cliente);
   }
 }
 
+/**
+ * Se encarga de leer el archivo de configuración que indica el correo
+ * al que se van a enviar las alertas y los códigos de eventos que debemos
+ * detectar para alertar.
+ */
 void leer_config(void) {
   //Abrimos el archivo de configuración
   config_file = fopen(config, "r");
@@ -453,11 +504,13 @@ void leer_config(void) {
     exit(EX_IOERR);
   }
 
+  // Leemos el correo.
   char * correo;
   if (1 == fscanf(config_file, " %ms", &correo)) {
     to = correo;
   }
 
+  // Leemos los códigos de eventos.
   int num, i = 0;
   while (1 == fscanf(config_file, "%d", &num)) {
     patrones[i] = num;
@@ -468,10 +521,16 @@ void leer_config(void) {
   fclose(config_file);
 }
 
+/**
+ * Es el main del programa se encarga de parsear los argumentos de linea de comandos,
+ * configurar el socket del servidor, de crear a los hilos consumidores que se encargan
+ * de procesar las solicitudes y conexiones de los clientes y de aceptar las conexiones
+ * de los clientes.
+ */
 int main(int argc, char ** argv) {
   char opt;
 
-  {
+  { // Inicializamos el arreglo de patrones.
     size_t i = 0;
     while (i < sizeof(N_PATRONES)) {
       patrones[i] = 0;
@@ -479,8 +538,12 @@ int main(int argc, char ** argv) {
     }
   }
 
+  // Asignamos el nombre del programa.
   program_name = argv[0];
 
+  // Parseamos los argumentos -l, -b y -c de la linea de comandos
+  // Si se pone alguna opción que no sea una de las anteriores emitimos un error
+  // para indicarle la correcta invocación al usuario.
   while ((opt = getopt(argc, argv, "l:b:c:")) != -1) {
     switch (opt) {
       case 'l': puerto   = optarg; break;
@@ -491,32 +554,37 @@ int main(int argc, char ** argv) {
     }
   }
 
+  // Si no se indicó el puerto se emite un error.
   if (NULL == puerto) {
     fprintf(stderr, "El número de puerto local es obligatorio.\n");
     exit_usage(EX_USAGE);
   }
+
+  // Si no se indicó el archivo bitacora se emite un error.
   if (NULL == bitacora) {
     fprintf(stderr, "El nombre del archivo bitácora es obligatorio.\n");
     exit_usage(EX_USAGE);
   }
 
+  // Si se indicó el archivo de configuración leemos su configuración.
   if (NULL != config) {
     leer_config();
   }
 
+  // Llenamos los hints necesarios.
   struct addrinfo hints;
   struct addrinfo * results;
 
   memset(&hints, 0, sizeof(struct addrinfo));
   hints.ai_addr      = NULL;
   hints.ai_canonname = NULL;
-  hints.ai_family    = AF_INET;
-  hints.ai_flags     = AI_PASSIVE || AI_NUMERICSERV;
+  hints.ai_family    = AF_INET;                        // Direcciones IPv4.
+  hints.ai_flags     = AI_PASSIVE || AI_NUMERICSERV;   // Socket que pueda hacer accept y que use puertos numéricos.
   hints.ai_next      = NULL;
-  hints.ai_protocol  = getprotobyname("TCP")->p_proto;
-  hints.ai_socktype  = SOCK_STREAM;
+  hints.ai_protocol  = getprotobyname("TCP")->p_proto; // Protocolo TCP.
+  hints.ai_socktype  = SOCK_STREAM;                    // Socket basado en conexiones.
 
-  {
+  { // Buscamos las direcciones a las que podemos hacer bind.
     int i;
     if ((i = getaddrinfo(NULL, puerto, &hints, &results)) != 0) {
       fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(i));
@@ -524,9 +592,11 @@ int main(int argc, char ** argv) {
     }
   }
 
+  // Verificamos cuantas direcciones retornó getaddrinfo.
   int num_addrs = 0;
   for (struct addrinfo * result = results; result != NULL; result = result->ai_next) ++num_addrs;
 
+  // Si no retorna alguna no hay manera de crear el servicio.
   if (0 == num_addrs) {
     fprintf(stderr, "No se encontró ninguna manera de crear el servicio.\n");
     exit(EX_UNAVAILABLE);
@@ -538,20 +608,25 @@ int main(int argc, char ** argv) {
     exit(EX_OSERR);
   }
 
+  // Revisamos las direcciones que retorna getaddrinfo para ver cual podemos utilizar.
   int i = 0;
   int socks = 0;
   for (struct addrinfo * result = results; result != NULL; ++i, result = result->ai_next) {
+    // Si no podemos crear un socket entonces le asignamos a esa dirección el valor de no_sock y continuamos revisando.
     if ((sockfds[i] = socket(result->ai_family, result->ai_socktype, result->ai_protocol)) == -1) {
       sockfds[i] = no_sock;
       continue;
     }
 
+    // Intentamos hacer bind. Si falla, cerramos, asignamos no_sock y continuamos revisando,
+    // sino, se logra "bindear" exitosamente
     if (bind(sockfds[i], result->ai_addr, result->ai_addrlen) == -1) {
       close(sockfds[i]);
       sockfds[i] = no_sock;
       continue;
     }
 
+    // Intentamos escuchar por este socket. Si falla, cerramos la conexion, asignamos no_sock y continuamos revisando.
     if (listen(sockfds[i], default_backlog) == -1) {
       close(sockfds[i]);
       sockfds[i] = no_sock;
@@ -561,13 +636,16 @@ int main(int argc, char ** argv) {
     ++socks;
   }
 
+  // Liberamos results.
   freeaddrinfo(results);
 
+  // Si no logramos crear algun socket salimos del programa con error.
   if (socks <= 0) {
     fprintf(stderr, "No se encontró ninguna manera de crear el servicio.\n");
     exit(EX_UNAVAILABLE);
   }
 
+  // Pasamos todos los sockets que si pudimos crear exitosamente al inicio del arreglo de sockets.
   i = 0;
   int j = 0;
   for (i = 0, j = 0; i < socks; ++i) if (sockfds[i] == no_sock) {
@@ -577,16 +655,19 @@ int main(int argc, char ** argv) {
     ++j;
   }
 
+  // Hacemos realloc de la memoria para volverla mas pequeña.
   if ((sockfds = (int *)realloc(sockfds, socks*sizeof(int))) == NULL) {
     perror("realloc");
     exit(EX_OSERR);
   }
 
+  // Hacemos que los sockets sean non-blocking.
   for (i = 0; i < socks; ++i) if (fcntl(sockfds[i], F_SETFL, O_NONBLOCK) == -1) {
     perror("fcntl");
     exit(EX_OSERR);
   }
 
+  // Inicializamos curl.
   if (0 != curl_global_init(CURL_GLOBAL_ALL)) {
     fprintf(stderr, "No se pudo inicializar cURL\n");
     exit(EX_UNAVAILABLE);
@@ -598,6 +679,8 @@ int main(int argc, char ** argv) {
   pthread_t consumidores[num_consumidores];
   int s;
 
+  // Creamos los consumidores que se encargaran de atender las solicitudes de
+  // los clientes.
   for (int i = 0; i < num_consumidores; ++i) {
     int * num_consumidor = malloc(sizeof(int));
     *num_consumidor = i;
@@ -617,6 +700,7 @@ int main(int argc, char ** argv) {
     exit(EX_IOERR);
   }
 
+  // Aceptamos conexiones.
   while (1) {
     aceptar_conexion(socks, sockfds);
   }

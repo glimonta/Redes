@@ -24,11 +24,12 @@ char * program_name;    // Nombre del programa.
 const int no_sock = -1; // Indica no socket.
 uint32_t origen;        // Numero del ATM.
 
+// Argumentos de línea de comandos.
 char * servidor     = NULL;
 char * puerto       = NULL;
 char * puerto_local = NULL;
 
-pthread_mutex_t mutex_socket = PTHREAD_MUTEX_INITIALIZER;    // Mutex para el socket.
+pthread_mutex_t mutex_socket = PTHREAD_MUTEX_INITIALIZER; // Mutex para el socket.
 
 /**
  * Se encarga de imprimir un mensaje de error cuando el usuario
@@ -83,11 +84,11 @@ void * with_server(char * servidor, char * puerto, char * puerto_local, void * (
   memset(&hints, 0, sizeof(struct addrinfo));
   hints.ai_addr      = NULL;
   hints.ai_canonname = NULL;
-  hints.ai_family    = AF_INET;                       // Queremos direcciones de la familia IPv4
-  hints.ai_flags     = AI_NUMERICSERV;                // Indicamos que vamos a usar direcciones numericas
+  hints.ai_family    = AF_INET;                       // Queremos direcciones de la familia IPv4.
+  hints.ai_flags     = AI_NUMERICSERV;                // Indicamos que vamos a usar direcciones numericas.
   hints.ai_next      = NULL;
-  hints.ai_protocol  = getprotobyname("TCP")->p_proto;// Protocolo TCP
-  hints.ai_socktype  = SOCK_STREAM;                   // Socket basado en conexiones
+  hints.ai_protocol  = getprotobyname("TCP")->p_proto;// Protocolo TCP.
+  hints.ai_socktype  = SOCK_STREAM;                   // Socket basado en conexiones.
 
   {
     // Buscamos la(s) direccion(es) a las que posiblemente podamos conectarnos.
@@ -166,6 +167,14 @@ void * enviar_evento(int socket_servidor, void * datos) {
   return NULL;
 }
 
+/**
+ * Se encarga de enviar un hearbeat cada minuto al servidor para indicar que el
+ * cliente está vivo.
+ * @param datos parametro no utilizado, solo existe para adaptarse a la firma necesaria
+ * para funciones de hilos.
+ * @return retorno no utilizado, solo existe para adaptarse a la firma necesaria para
+ * funciones de hilos.
+ */
 void * enviar_heartbeat(void * datos) {
   (void)datos;
   while (1) {
@@ -201,10 +210,17 @@ void * enviar_heartbeat(void * datos) {
       exit(EX_SOFTWARE);
     }
 
-    sleep(1); //FIXME
+    sleep(1); //FIXME Debe enviar cada minuto, es mas facil para probar con un segundo.
   }
 }
 
+/**
+ * Se encarga de recibir constantemente eventos por la entrada estándar.
+ * @param datos parametro no utilizado, solo existe para adaptarse a la firma necesaria
+ * para funciones de hilos.
+ * @return retorno no utilizado, solo existe para adaptarse a la firma necesaria para
+ * funciones de hilos.
+ */
 void * recibir_eventos(void * datos) {
   (void)datos;
   // Parseamos la entrada estándar. Los eventos deben tener el siguiente formato:
@@ -271,7 +287,7 @@ void * recibir_eventos(void * datos) {
 int main(int argc, char ** argv) {
   char opt;
 
-  {
+  { // Usamos esto como semilla para el random.
     struct timespec t;
     clock_gettime(CLOCK_REALTIME, &t);
     srand(t.tv_nsec);
@@ -307,6 +323,7 @@ int main(int argc, char ** argv) {
   pthread_t marcapasos, manejador;
   int s;
 
+  // Creamos los hilos marcapasos y manejador.
   s = pthread_create(&marcapasos, NULL, &enviar_heartbeat, NULL);
   if (s != 0) {
     errno = s;

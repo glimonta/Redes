@@ -57,11 +57,17 @@ int length_deque(Deque d);
 void mapM_deque(void (*f)(void *), Deque d);
 
 /**
- * Busca elementos en la lista usando un predicado.
+ * Busca elementos en la cola usando un predicado.
  * @param f predicado.
- * @param d lista o cola de elementos.
- * @return elemento de la lista encontrado, null si no lo encontró.
+ * @param d cola de elementos.
+ * @return elemento de la cola encontrado, null si no lo encontró.
  */
 void * find_deque(int (*f)(void *, void *), Deque d, void * datos);
 
+/**
+ * Elimina el primer elemento de la cola que cumpla un predicado.
+ * @param f predicado.
+ * @param d cola de elementos.
+ * @return elemento de la cola eliminado, null si no lo encontró.
+ */
 void * delete_first_deque(int (*f)(void *, void *), Deque d, void * datos);
